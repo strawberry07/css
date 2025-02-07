@@ -64,27 +64,38 @@ recent_works <- oa_fetch(
   title.search = query,
   type = "article",
   language = "EN",
-  from_publication_date = "2024-12-15",
+  from_publication_date = "2020-01-01",
   abstract = TRUE,
   to_publication_date = "2024-12-31",
   version = "publishedVersion",
   output = "dataframe",
+  is_paratext = "false",
+  has_fulltext = TRUE,
   options = list(
     select = c(
       "id",
       "title",
       "publication_date",
+      "keywords",
       "relevance_score",
       "sources",
       "primary_location",
+      "corresponding_institution_ids",
       "abstract_inverted_index",
       "cited_by_count",
       "authorships",
       "doi",
-      "biblio","topics"
+      "biblio",
+      "topics",
+      "primary_topic",
+      "referenced_works"
     )
   )
 )
+recent_works %>% filter(last_page != first_page) -> recent_works
+recent_works %>% filter(as.numeric(last_page) - as.numeric(first_page) >
+                          1) -> recent_works
+recent_works %>% filter(so != "Deleted Journal") -> recent_works
 
 filter_exact_matches <- function(titles) {
   # Clean the terms (remove quotes and convert to lowercase)
@@ -103,284 +114,246 @@ filter_exact_matches <- function(titles) {
   
   return(relevant_titles)
 }
+filtered_works <- recent_works %>%
+  filter(title %in% filter_exact_matches(title)) %>% distinct(title, .keep_all = TRUE)
+#select useful variables
+filtered_works %>% select(
+  id,
+  title,
+  author,
+  ab,
+  publication_date,
+  first_page,
+  last_page,
+  relevance_score,
+  so,
+  so_id,
+  topics
+) -> work_data
+
+work_data %>% filter(!is.na(ab)) -> work_data  #191 observation
+
+#plot the journal led by IEEE Access,journal of health engineering....predominantly engineering journals.
+journal_count <- table(work_data$so)
+journal_count_df <- as.data.frame(journal_count)
+colnames(journal_count_df) <- c("journal", "count")
+
+ggplot(journal_count_df %>% arrange(desc(count)) %>%  # Sort by count in descending order
+         slice_head(n = 15) ,
+       aes(x = reorder(journal, -count), y = count)) +
+  geom_bar(stat = "identity", fill = "steelblue") +  # Bar plot with color
+  labs(title = "Journal Counts from Highest to Lowest", x = "Journal", y = "Count") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold"),
+    # Center the title
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    # Rotate x-axis labels
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  )
+
+
+
+
+# #are they published by ageing journals or tech journals?
+# table(work_data$so)
+#
+# #get discipline from WoS
+# SSCI <- read.csv("C:/Users/b151041/Downloads/Social Sciences Citation Index (SSCI).csv")
+# ESCI <- read.csv("C:/Users/b151041/Downloads/Emerging Sources Citation Index (ESCI).csv")
+# AHCI <- read.csv("C:/Users/b151041/Downloads/Arts & Humanities Citation Index (AHCI).csv")
+# SCIE <- read.csv("C:/Users/b151041/Downloads/Science Citation Index Expanded (SCIE).csv")
+#
+# #combine journals
+# journal_list<-rbind(SSCI,ESCI,AHCI,SCIE) %>% select(Journal.title,Web.of.Science.Categories) %>% distinct(Journal.title,.keep_all = TRUE)
+# journal_list<-journal_list %>% rename(so=Journal.title,disc=Web.of.Science.Categories)
+# #match journal discipline  ##pay attention to "&" and "and" that cannot be matched need to be manually checked later
+#
+# work_data %>% mutate(so_lower=tolower(so)) %>% left_join(journal_list %>% mutate(so_lower=tolower(so)),by="so_lower")->work_data
+# #only choose the first discipline #even with | they tend to be in similar domain, e.g. neuroscience and neuro imaging
+# work_data %>% mutate(disc=sub("\\|.*$", "", disc)) ->work_data
+#
+# ## word cloud of journal names
+# library(wordcloud)
+# library(RColorBrewer)
+# library(tidytext)
+# df<-work_data %>% select(so_lower)
+# # Step 1: Tokenize the 'so_lower' column into individual words
+# tokenized <- df %>%
+#   unnest_tokens(word, so_lower)  # Split journal names into individual words
+#
+# # Step 2: Remove stopwords and custom unwanted words
+# # Define custom unwanted words
+# custom_stopwords <- c("journal", "and", "international", "of","research","frontiers","indonesian","\\b\\d+\\b")
+#
+# # Remove stopwords and custom unwanted words
+# filtered_words <- tokenized %>%
+#   filter(!word %in% c(custom_stopwords, stop_words$word))  # Remove both standard and custom stopwords
+#
+# # Step 3: Count word frequencies
+# word_counts <- filtered_words %>%
+#   count(word, sort = TRUE)
+#
+# # View word frequencies
+# print(word_counts)
+#
+# # Step 4: Create the word cloud
+# set.seed(123)  # For reproducibility
+# wordcloud(
+#   words = word_counts$word,
+#   freq = word_counts$n,
+#   min.freq = 1,  # Minimum frequency for a word to be included
+#   max.words = 100,  # Maximum number of words to display
+#   random.order = FALSE,  # Display most frequent words in the center
+#   colors = brewer.pal(8, "Dark2")
+# )
+#
+# #count frequencies of discipline
+# disc_count<-table(work_data$disc)
+# disc_count_df<-as.data.frame(disc_count)
+# colnames(disc_count_df)<-c("disc","count")
+#
+# cleaned_df <- disc_count_df %>%
+#   mutate(
+#     disc_clean = str_trim(disc),  # Remove leading/trailing spaces
+#     disc_clean = tolower(disc_clean)  # Convert to lowercase
+#   )
+#
+# # Step 2: Group and aggregate counts by cleaned discipline names
+# grouped_df <- cleaned_df %>%
+#   group_by(disc_clean) %>%
+#   summarise(total_count = sum(count), .groups = "drop")  # Sum counts for identical names
+#
+# # Step 3: Sort by total count
+# grouped_df <- grouped_df %>%
+#   arrange(desc(total_count))
+#
+# # View the cleaned and grouped data
+# print(grouped_df)
+#
+# # Step 4: Plot the cleaned data (e.g., top 30 disciplines)
+# ggplot(grouped_df %>% slice_head(n = 30), aes(x = reorder(disc_clean, total_count), y = total_count)) +
+#   geom_bar(stat = "identity", fill = "steelblue") +
+#   coord_flip() +
+#   labs(
+#     title = "Top Disciplines by Count (Cleaned)",
+#     x = "Discipline",
+#     y = "Total Count"
+#   ) +
+#   theme_minimal() +
+#   theme(
+#     plot.title = element_text(hjust = 0.5, face = "bold"),
+#     axis.text = element_text(size = 10),
+#     axis.title = element_text(size = 12)
+#   )
+#
+#
+# ##wordcloud of disciplines
+# df<-work_data %>% select(disc)
+# # Step 1: Tokenize the 'so_lower' column into individual words
+# tokenized <- df %>%
+#   unnest_tokens(word, disc)  # Split journal names into individual words
+#
+# # Step 2: Remove stopwords and custom unwanted words
+# # Define custom unwanted words
+# custom_stopwords <- c("journal", "and", "international", "of","research","&",",")
+#
+# # Remove stopwords and custom unwanted words
+# filtered_words <- tokenized %>%
+#   filter(!word %in% c(custom_stopwords, stop_words$word))  # Remove both standard and custom stopwords
+#
+# # Step 3: Count word frequencies
+# word_counts <- filtered_words %>%
+#   count(word, sort = TRUE)
+#
+# # View word frequencies
+# print(word_counts)
+#
+# # Step 4: Create the word cloud
+# set.seed(123)  # For reproducibility
+# wordcloud(
+#   words = word_counts$word,
+#   freq = word_counts$n,
+#   min.freq = 1,  # Minimum frequency for a word to be included
+#   max.words = 100,  # Maximum number of words to display
+#   random.order = FALSE,  # Display most frequent words in the center
+#   colors = brewer.pal(8, "Dark2")
+# )
+#
+#
+#
+# ##group similar disciplines
+# library(stringdist)
+# work_data %>% filter(!is.na(disc)) ->work_data
+# distance_matrix<-stringdistmatrix(work_data$disc,work_data$disc,method = "jw")
+# hc <- hclust(as.dist(distance_matrix))
+# plot(hc,labels = work_data$disc)
 
 # 3. Apply filter
-filtered_works <- recent_works %>%
-  filter(title %in% filter_exact_matches(title))
-
 results <- data.frame(
   title = character(),
-  topic = character(),
+  name = character(),
   score = numeric(),
   type = character(),
-  path=numeric(),
+  path = numeric(),
   stringsAsFactors = FALSE
 )
 
 # Loop through each row in filtered_works
-for (i in 1:nrow(filtered_works)) {
+for (i in 1:nrow(work_data)) {
   # Get the article name
-  title <- filtered_works$title[i]
-  
+  title <- work_data$title[[i]]
   # Get the concepts for the current article
-  topics_list <- filtered_works$topics[[i]]
-  
-  for (j in 1:nrow(topics_list)) {
-    topic <- topics_list$display_name[[j]]
-    score <- topics_list$score[[j]]
-    type <- topics_list$type[[j]]
-    path <- topics_list$i[[j]]
-    
-    # Add a new row to the results dataframe
-    results <- rbind(
-      results,
-      data.frame(
-        title = title,
-        topic = topic,
-        score = score,
-        type = type,
-        path = path,
-        stringsAsFactors = FALSE
+  topics_list <- work_data$topics[[i]]
+  if (!is.null(nrow(topics_list))  && nrow(topics_list) > 0) {
+    topics_list %>% rename(path = i) -> topics_list
+    for (j in 1:nrow(topics_list)) {
+      name <- topics_list$display_name[[j]]
+      score <- topics_list$score[[j]]
+      type <- topics_list$name[[j]]
+      path <- topics_list$path[[j]]
+      
+      # Add a new row to the results dataframe
+      results <- rbind(
+        results,
+        data.frame(
+          title = title,
+          name = name,
+          score = score,
+          type = type,
+          path = path,
+          stringsAsFactors = FALSE
+        )
       )
-    )
+    }
   }
 }
 
 left_join(
-  filtered_works %>% select(
+  work_data %>% select(
     id,
-    title,
+    title,author,ab,
     publication_date,
-    relevance_score,
-    cited_by_count,
-    source_display_name,
-    source_id
+    relevance_score,so
   ),
   results,
   by = "title"
 ) -> results_w_topics
 
-results_w_topics$id<-gsub("https?://orcid.org/|https?://openalex.org/","",results_w_topics$id)
-results_w_topics$source_id<-gsub("https?://orcid.org/|https?://openalex.org/","",results_w_topics$source_id)
-# # List of 19 level 0 concepts
-# concept_list <- concept_abbrev$display_name
-# results_w_concepts %>% filter(score>0) %>% group_by(title,level) %>% count(level) -> concept_count
-# 
-# full_df <- expand.grid(
-#   title = unique(filtered_works$title),
-#   concept = concept_list
-# )
-
-results_w_topics %>% filter(type=="domain") %>% group_by(title,topic) %>% summarise(score)->title_domain
-
-highest_score<-results_w_concepts %>% 
-  filter(score>0) %>% group_by(title,level) %>% 
-  slice_max(order_by = score) %>% select(title,concept,score,level)
+domain<-results_w_topics %>% filter(type=="domain")
+field<-results_w_topics %>% filter(type=="field")
+subfield<-results_w_topics %>% filter(type=="subfield")
+topic<-results_w_topics %>% filter(type=="topic")
 
 
 
-full_df %>%
-  left_join(results_w_concepts, by = c("title", "concept")) %>%
-  mutate(score = replace_na(score, 0))  -> full_df
-
-full_df$id<-gsub("https?://orcid.org/|https?://openalex.org/","",full_df$id)
-full_df$source_id<-gsub("https?://orcid.org/|https?://openalex.org/","",full_df$source_id)
-
-non_zero_counts <- full_df %>%
-  group_by(title) %>%
-  summarise(non_zero_disciplinary_count = sum(score > 0))
 
 
-# 4. Show results
-cat("Original articles:", nrow(recent_works), "\n")
-cat("Filtered articles:", nrow(filtered_works), "\n\n")
 
-
-max_authors <- max(unlist(lapply(filtered_works$author, function(x) {
-  if (is.data.frame(x))
-    nrow(x)
-  else if (is.list(x))
-    length(x)
-  else
-    1
-})))
-
-works_df <- data.frame(
-  # Basic article info
-  title = filtered_works$title,
-  publication_date = filtered_works$publication_date,
-  cited_by_count = filtered_works$cited_by_count,
-  relevance_score = filtered_works$relevance_score,
-  journal = filtered_works$so,
-  number_of_authors = sapply(filtered_works$author, NROW)
-)
-
-for (author_num in 1:max_authors) {
-  # Create new columns for each author
-  works_df[paste0("au", author_num, "_id")] <- NA_character_
-  works_df[paste0("au", author_num, "_name")] <- NA_character_
-  works_df[paste0("au", author_num, "_orcid")] <- NA_character_
-  works_df[paste0("au", author_num, "_institution_id")] <- NA_character_
-  works_df[paste0("au", author_num, "_institution")] <- NA_character_
-  works_df[paste0("au", author_num, "_institution_country")] <- NA_character_
-  works_df[paste0("au", author_num, "_institution_type")] <- NA_character_
-}
-
-# Initialize concept columns
-level0_concept = NA_character_
-level0_score = NA_real_
-level1_concept = NA_character_
-level1_score = NA_real_
-level2_concept = NA_character_
-level2_score = NA_real_
-level3_concept = NA_character_
-level3_score = NA_real_
-
-for (i in 1:nrow(filtered_works)) {
-  # # Extract author information
-  # authors <- filtered_works$author[[i]]
-  #
-  # # Process authors
-  # for(author_num in 1:nrow(authors)) {
-  #   author <- authors[author_num,]
-  #
-  #   # Fill in author information
-  #   works_df[i, paste0("au", author_num, "_id")] <- author$au_id
-  #   works_df[i, paste0("au", author_num, "_name")] <- author$au_display_name
-  #   works_df[i, paste0("au", author_num, "_orcid")] <- author$au_orcid
-  #   works_df[i, paste0("au", author_num, "_institution_id")] <- author$institution_id
-  #   works_df[i, paste0("au", author_num, "_institution")] <- author$institution_display_name
-  #   works_df[i, paste0("au", author_num, "_institution_country")] <- author$institution_country_code
-  #   works_df[i, paste0("au", author_num, "_institution_type")] <- author$institution_type
-  # }
-  #
-  # Extract concepts
-  work_concepts <- filtered_works$concepts[[i]]
-  if (length(work_concepts) > 0) {
-    for (level in 0:3) {
-      level_mask <- work_concepts$level == level
-      if (any(level_mask)) {
-        works_df[i, paste0("level", level, "_concept")] <-
-          work_concepts$display_name[level_mask][1]
-        works_df[i, paste0("level", level, "_score")] <-
-          work_concepts$score[level_mask][1]
-      }
-    }
-  }
-}
-# Fill in the data
-for (i in 1:nrow(filtered_works)) {
-  # Extract author information
-  authors <- filtered_works$author[[i]]
-  
-  # Process first 3 authors
-  if (length(authors) > 0) {
-    for (author_num in 1:nrow(authors)) {
-      author <- authors[author_num, ]
-      
-      # Fill in author information
-      works_df[i, paste0("au", author_num, "_id")] <- author$au_id
-      works_df[i, paste0("au", author_num, "_name")] <- author$au_display_name
-      works_df[i, paste0("au", author_num, "_orcid")] <- author$au_orcid
-      works_df[i, paste0("au", author_num, "_institution_id")] <- author$institution_id
-      works_df[i, paste0("au", author_num, "_institution")] <- author$institution_display_name
-      works_df[i, paste0("au", author_num, "_institution_country")] <- author$institution_country_code
-      works_df[i, paste0("au", author_num, "_institution_type")] <- author$institution_type
-    }
-  }
-  
-  # Extract concepts
-  work_concepts <- filtered_works$concepts[[i]]
-  if (length(work_concepts) > 0) {
-    for (level in 0:3) {
-      level_mask <- work_concepts$level == level
-      if (any(level_mask)) {
-        works_df[i, paste0("level", level, "_concept")] <-
-          work_concepts$display_name[level_mask][1]
-        works_df[i, paste0("level", level, "_score")] <-
-          work_concepts$score[level_mask][1]
-      }
-    }
-  }
-}
-
-# Clean up the data
-works_df <- works_df %>%
-  mutate(across(everything(), ~ ifelse(.x == "NULL", NA, .x))) %>%
-  mutate(publication_date = as.Date(publication_date),
-         across(
-           everything(),
-           ~ gsub("https?://orcid.org/|https?://openalex.org/", "", .)
-         ))
-journal_summary <- works_df %>%
-  group_by(journal) %>%
-  summarise(
-    number_of_papers = n(),
-    total_citations = sum(cited_by_count, na.rm = TRUE),
-    avg_citations = mean(cited_by_count, na.rm = TRUE),
-    avg_authors = mean(number_of_authors, na.rm = TRUE),
-    avg_relevance = mean(relevance_score, na.rm = TRUE)
-  ) %>%
-  arrange(desc(number_of_papers))
-
-total_papers <- sum(journal_summary$number_of_papers)
-journal_summary <- journal_summary %>%
-  mutate(percentage_of_papers = (number_of_papers / total_papers) * 100)
-
-# Print top journals
-print(head(journal_summary))
-
-concept0_summary <- works_df %>%
-  group_by(level0_concept) %>%
-  summarise(
-    frequency = n(),
-    avg_score = mean(level0_score, na.rm = TRUE),
-    total_citations = sum(cited_by_count, na.rm = TRUE),
-    avg_citations = mean(cited_by_count, na.rm = TRUE)
-  ) %>%
-  arrange(desc(frequency)) %>%
-  filter(!is.na(level0_concept))  # Remove NA if any
-
-concept1_summary <- works_df %>%
-  group_by(level1_concept) %>%
-  summarise(
-    frequency = n(),
-    avg_score = mean(level1_score, na.rm = TRUE),
-    total_citations = sum(cited_by_count, na.rm = TRUE),
-    avg_citations = mean(cited_by_count, na.rm = TRUE)
-  ) %>%
-  arrange(desc(frequency)) %>%
-  filter(!is.na(level1_concept))  # Remove NA if any
-
-concept2_summary <- works_df %>% filter(level0_concept == "Computer science") %>%
-  group_by(level2_concept) %>%
-  summarise(
-    frequency = n(),
-    avg_score = mean(level2_score, na.rm = TRUE),
-    total_citations = sum(cited_by_count, na.rm = TRUE),
-    avg_citations = mean(cited_by_count, na.rm = TRUE)
-  ) %>%
-  arrange(desc(frequency)) %>%
-  filter(!is.na(level2_concept))  # Remove NA if any
-
-# Print top concepts
-print(head(concept0_summary, 10))
-print(head(concept1_summary, 10))
-print(head(concept2_summary, 10))
-
-# Calculate percentage
-concept1_summary <- concept1_summary %>%
-  mutate(percentage = (frequency / sum(frequency)) * 100)
-
-# Visualize top 10 concepts
-ggplot(head(concept1_summary, 10), aes(x = reorder(level1_concept, frequency), y = frequency)) +
-  geom_bar(stat = "identity") +
-  coord_flip() +
-  theme_minimal() +
-  labs(title = "Top 10 Level 1 Concepts", x = "Concept", y = "Frequency")
-
-# View the first few rows
-head(works_df)
-
-# Get a summary of the dataframe
-summary(works_df)
+results_w_topics$id <- gsub("https?://orcid.org/|https?://openalex.org/",
+                            "",
+                            results_w_topics$id)
+results_w_topics$source_id <- gsub("https?://orcid.org/|https?://openalex.org/",
+                                   "",
+                                   results_w_topics$source_id)
